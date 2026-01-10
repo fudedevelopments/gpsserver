@@ -89,33 +89,13 @@ const server = net.createServer((socket) => {
       const frame = buffer.substring(0, frameLength);
 
       log.info(`\n✅ Complete Frame Received from ${clientIP}`);
-      log.debug(`   Frame: ${frame}`);
+      log.info(`📦 RAW DATA: ${frame}`);
+      log.info(`📏 Length: ${frame.length / 2} bytes\n`);
 
-      // Decode the frame
-      const decoded = decoder.decode(frame);
-      
-      if (decoded.error) {
-        log.error(`❌ Decode Error: ${decoded.error}`);
-      } else {
-        log.info(`📍 DECODED DATA:`);
-        console.log(JSON.stringify(decoded, null, 2));
-
-        // Send ACK to device
-        const ack = Buffer.from([0x78, 0x78, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x7d, 0x0d, 0x0a]);
-        socket.write(ack);
-        log.debug(`✔️  ACK sent to ${clientIP}\n`);
-
-        // Store to database (example)
-        if (decoded.location) {
-          storeLocationData({
-            imei: decoded.imei,
-            location: decoded.location,
-            clientIP: clientIP,
-            clientPort: clientPort,
-            receivedAt: new Date()
-          });
-        }
-      }
+      // Send ACK to device
+      const ack = Buffer.from([0x78, 0x78, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x7d, 0x0d, 0x0a]);
+      socket.write(ack);
+      log.debug(`✔️  ACK sent to ${clientIP}\n`);
 
       // Remove processed frame from buffer
       buffer = buffer.substring(frameLength);

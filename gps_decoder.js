@@ -60,14 +60,24 @@ class GPSDecoder {
       const imeiBytes = bytes.slice(4, 12);
       result.imei = this.bytesToString(imeiBytes);
 
+      // Extract sequence number (2 bytes after IMEI)
+      if (bytes.length >= 14) {
+        result.sequenceNumber = this.readUInt16BE(bytes, 12);
+      }
+
       // Check minimum length for location data
+      // Full location message should be at least 28 bytes
       if (bytes.length < 28) {
-        result.warning = 'Message too short for full location data';
+        result.status = 'GPS_NOT_READY';
+        result.message = 'Device connected but GPS has no satellite lock yet';
+        result.advice = 'Wait for GPS to acquire satellites (GPS:FIXED). Ensure device has clear sky view.';
+        result.messageLength = bytes.length;
+        result.expectedLength = '28+ bytes for full GPS data';
         return result;
       }
 
-      // Parse location data (starts at byte 12)
-      let offset = 12;
+      // Parse location data (starts at byte 12 after sequence number)
+      let offset = 14; // After IMEI (8 bytes) + sequence (2 bytes) + header (4 bytes)
 
       // Latitude (4 bytes, big-endian)
       const latRaw = this.readUInt32BE(bytes, offset);
