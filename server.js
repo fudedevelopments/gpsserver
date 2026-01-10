@@ -5,8 +5,6 @@
 
 require('dotenv').config();
 const net = require('net');
-const chalk = require('chalk');
-const logger = require('./logger');
 const GPSDecoder = require('./gps_decoder');
 
 const PORT = process.env.PORT || 8503;
@@ -14,6 +12,18 @@ const decoder = new GPSDecoder();
 
 // Track connected devices
 const connectedDevices = new Map();
+
+// Simple logging utility
+const log = {
+  info: (msg) => console.log(`[INFO] ${new Date().toISOString()} - ${msg}`),
+  warn: (msg) => console.log(`[WARN] ${new Date().toISOString()} - ${msg}`),
+  error: (msg) => console.error(`[ERROR] ${new Date().toISOString()} - ${msg}`),
+  debug: (msg) => {
+    if (process.env.LOG_LEVEL === 'debug') {
+      console.log(`[DEBUG] ${new Date().toISOString()} - ${msg}`);
+    }
+  }
+};
 
 const server = net.createServer((socket) => {
   const clientIP = socket.remoteAddress;
@@ -29,8 +39,8 @@ const server = net.createServer((socket) => {
     messagesReceived: 0
   });
 
-  logger.info(chalk.green(`🔌 Device connected: ${clientIP}:${clientPort}`));
-  logger.info(chalk.gray(`   Active connections: ${connectedDevices.size}`));
+  log.info(`🔌 Device connected: ${clientIP}:${clientPort}`);
+  log.info(`   Active connections: ${connectedDevices.size}`);
 
   let buffer = '';
 
@@ -46,7 +56,7 @@ const server = net.createServer((socket) => {
 
     // Convert buffer to hex string
     const hexData = data.toString('hex');
-    logger.debug(chalk.cyan(`📥 RAW HEX from ${clientIP}: ${hexData}`));
+    log.debug(`📥 RAW HEX from ${clientIP}: ${hexData}`);
 
     // Add to buffer (in case messages are split)
     buffer += hexData;
@@ -78,22 +88,22 @@ const server = net.createServer((socket) => {
       const frameLength = endIndex + 4;
       const frame = buffer.substring(0, frameLength);
 
-      logger.info(chalk.green(`\n✅ Complete Frame Received from ${clientIP}`));
-      logger.debug(chalk.gray(`   Frame: ${frame}`));
+      log.info(`\n✅ Complete Frame Received from ${clientIP}`);
+      log.debug(`   Frame: ${frame}`);
 
       // Decode the frame
       const decoded = decoder.decode(frame);
       
       if (decoded.error) {
-        logger.error(chalk.red(`❌ Decode Error: ${decoded.error}`));
+        log.error(`❌ Decode Error: ${decoded.error}`);
       } else {
-        logger.info(chalk.blue(`📍 DECODED DATA:`));
+        log.info(`📍 DECODED DATA:`);
         console.log(JSON.stringify(decoded, null, 2));
 
         // Send ACK to device
         const ack = Buffer.from([0x78, 0x78, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x7d, 0x0d, 0x0a]);
         socket.write(ack);
-        logger.debug(chalk.gray(`✔️  ACK sent to ${clientIP}\n`));
+        log.debug(`✔️  ACK sent to ${clientIP}\n`);
 
         // Store to database (example)
         if (decoded.location) {
@@ -113,18 +123,18 @@ const server = net.createServer((socket) => {
   });
 
   socket.on('timeout', () => {
-    logger.warn(chalk.yellow(`⏱️  Socket timeout for ${clientIP}:${clientPort}`));
+    log.warn(`⏱️  Socket timeout for ${clientIP}:${clientPort}`);
     socket.end();
   });
 
   socket.on('end', () => {
     connectedDevices.delete(clientId);
-    logger.info(chalk.yellow(`❌ Device disconnected: ${clientIP}:${clientPort}`));
-    logger.info(chalk.gray(`   Active connections: ${connectedDevices.size}\n`));
+    log.info(`❌ Device disconnected: ${clientIP}:${clientPort}`);
+    log.info(`   Active connections: ${connectedDevices.size}\n`);
   });
 
   socket.on('error', (error) => {
-    logger.error(chalk.red(`⚠️  Socket error from ${clientIP}:${clientPort}: ${error.message}`));
+    log.error(`⚠️  Socket error from ${clientIP}:${clientPort}: ${error.message}`);
     connectedDevices.delete(clientId);
   });
 });
@@ -136,62 +146,63 @@ function storeLocationData(data) {
   // Example: Store to database
   // You can integrate with MongoDB, PostgreSQL, etc.
   
-  logger.info(chalk.magenta(`💾 Storing location data:`));
-  logger.info(chalk.gray(`   IMEI: ${data.imei}`));
+  log.info(`💾 Storing location data:`);
+  log.info(`   IMEI: ${data.imei}`);
   
   if (data.location && data.location.latitude) {
-    logger.info(chalk.gray(`   Latitude: ${data.location.latitude.decimal}° ${data.location.latitude.direction}`));
-    logger.info(chalk.gray(`   Longitude: ${data.location.longitude.decimal}° ${data.location.longitude.direction}`));
-    logger.info(chalk.gray(`   Altitude: ${data.location.altitude}`));
-    logger.info(chalk.gray(`   Speed: ${data.location.speed}`));
-    logger.info(chalk.gray(`   Direction: ${data.location.direction}`));
-    logger.info(chalk.gray(`   DateTime: ${data.location.dateTime}`));
-    logger.info(chalk.gray(`   GPS Status: ${data.location.gpsStatus === 'FIXED' ? chalk.green('FIXED') : chalk.yellow('UNFIXED')}`));
+    log.info(`   Latitude: ${data.location.latitude.decimal}° ${data.location.latitude.direction}`);
+    log.info(`   Longitude: ${data.location.longitude.decimal}° ${data.location.longitude.direction}`);
+    log.info(`   Altitude: ${data.location.altitude}`);
+    log.info(`   Speed: ${data.location.speed}`);
+    log.info(`   Direction: ${data.location.direction}`);
+    log.info(`   DateTime: ${data.location.dateTime}`);
+    const gpsStatus = data.location.gpsStatus === 'FIXED' ? 'FIXED ✓' : 'UNFIXED';
+    log.info(`   GPS Status: ${gpsStatus}`);
   }
 }
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  logger.info(chalk.yellow('\n🛑 Shutting down server gracefully...'));
+  log.info('\n🛑 Shutting down server gracefully...');
   
   // Close all connections
   connectedDevices.forEach((device, clientId) => {
-    logger.info(chalk.gray(`   Closing connection: ${clientId}`));
+    log.info(`   Closing connection: ${clientId}`);
   });
   
   server.close(() => {
-    logger.info(chalk.green('✅ Server closed'));
+    log.info('✅ Server closed');
     process.exit(0);
   });
   
   // Force close after 10 seconds
   setTimeout(() => {
-    logger.error(chalk.red('⚠️  Forcing shutdown'));
+    log.error('⚠️  Forcing shutdown');
     process.exit(1);
   }, 10000);
 });
 
 server.listen(PORT, () => {
-  console.log('\n' + chalk.bold.green('═'.repeat(60)));
-  console.log(chalk.bold.green('  🚀 GPS TCP Server Started'));
-  console.log(chalk.bold.green('═'.repeat(60)));
-  logger.info(chalk.cyan(`📡 Listening on port: ${chalk.bold(PORT)}`));
-  logger.info(chalk.gray(`⏰ Server time: ${new Date().toISOString()}`));
-  logger.info(chalk.gray(`🔧 Node version: ${process.version}`));
-  console.log(chalk.bold.green('─'.repeat(60)));
-  logger.warn(chalk.yellow('⚠️  GPS Device Requirements:'));
-  logger.info(chalk.gray(`   • Clear sky view for GPS acquisition`));
-  logger.info(chalk.gray(`   • Wait for GPS:FIXED status`));
-  logger.info(chalk.gray(`   • Configure server IP: ${chalk.bold('YOUR_SERVER_IP')}`));
-  logger.info(chalk.gray(`   • Configure server port: ${chalk.bold(PORT)}`));
-  console.log(chalk.bold.green('═'.repeat(60)) + '\n');
+  console.log('\n' + '='.repeat(60));
+  console.log('  🚀 GPS TCP Server Started');
+  console.log('='.repeat(60));
+  log.info(`📡 Listening on port: ${PORT}`);
+  log.info(`⏰ Server time: ${new Date().toISOString()}`);
+  log.info(`🔧 Node version: ${process.version}`);
+  console.log('-'.repeat(60));
+  log.warn('⚠️  GPS Device Requirements:');
+  log.info(`   • Clear sky view for GPS acquisition`);
+  log.info(`   • Wait for GPS:FIXED status`);
+  log.info(`   • Configure server IP: YOUR_SERVER_IP`);
+  log.info(`   • Configure server port: ${PORT}`);
+  console.log('='.repeat(60) + '\n');
 });
 
 server.on('error', (error) => {
   if (error.code === 'EADDRINUSE') {
-    logger.error(chalk.red(`❌ Port ${PORT} is already in use`));
+    log.error(`❌ Port ${PORT} is already in use`);
   } else {
-    logger.error(chalk.red(`❌ Server error: ${error.message}`));
+    log.error(`❌ Server error: ${error.message}`);
   }
   process.exit(1);
 });
