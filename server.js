@@ -88,9 +88,33 @@ const server = net.createServer((socket) => {
       const frameLength = endIndex + 4;
       const frame = buffer.substring(0, frameLength);
 
-      log.info(`\n✅ Complete Frame Received from ${clientIP}`);
+      log.info(`\n${'='.repeat(70)}`);
+      log.info(`✅ Complete Frame Received from ${clientIP}`);
       log.info(`📦 RAW DATA: ${frame}`);
-      log.info(`📏 Length: ${frame.length / 2} bytes\n`);
+      log.info(`📏 Length: ${frame.length / 2} bytes`);
+
+      // Decode the frame
+      const decoded = decoder.decode(frame);
+      
+      // Display protocol identification
+      if (decoded.protocol) {
+        log.info(`\n🔍 PROTOCOL IDENTIFICATION:`);
+        log.info(`   Protocol: ${decoded.protocol.name}`);
+        log.info(`   Standard: ${decoded.protocol.standard}`);
+        log.info(`   Message Type: ${decoded.protocol.messageType} (0x${decoded.protocol.messageTypeHex})`);
+      }
+      
+      // Display all data fields
+      if (decoded.dataFields) {
+        log.info(`\n📊 DATA FIELDS RECEIVED:`);
+        decoded.dataFields.forEach(field => {
+          log.info(`   • ${field.name}: ${field.value}${field.unit ? ' ' + field.unit : ''}`);
+        });
+      }
+      
+      log.info(`\n📍 COMPLETE DECODED DATA:`);
+      console.log(JSON.stringify(decoded, null, 2));
+      log.info('='.repeat(70));
 
       // Send ACK to device
       const ack = Buffer.from([0x78, 0x78, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x7d, 0x0d, 0x0a]);

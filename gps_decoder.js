@@ -22,23 +22,43 @@ class GPSDecoder {
 
       // Validate frame
       if (bytes[0] !== 0x78 || bytes[1] !== 0x78) {
-        return { error: 'Invalid frame start marker' };
+        return { 
+          error: 'Invalid frame start marker',
+          protocol: {
+            name: 'Unknown',
+            standard: 'Unable to identify',
+            detected: false
+          }
+        };
       }
 
       const frameLength = bytes[2];
       const messageType = bytes[3];
 
+      // Add protocol identification
+      const protocolInfo = {
+        name: 'JT808/GT06 Protocol',
+        standard: 'Chinese GB/T 30428-2013',
+        vendor: 'Concox (GT06N/GPS Tracker R12)',
+        frameStart: '0x7878',
+        frameEnd: '0x0D0A',
+        detected: true,
+        messageType: this.getMessageTypeName(messageType),
+        messageTypeHex: messageType.toString(16).padStart(2, '0').toUpperCase()
+      };
+
       // Type 01 = Location Report
       if (messageType === 0x01) {
-        return this.decodeLocationReport(bytes);
+        return this.decodeLocationReport(bytes, protocolInfo);
       }
       // Type 04 = Heartbeat
       else if (messageType === 0x04) {
-        return this.decodeHeartbeat(bytes);
+        return this.decodeHeartbeat(bytes, protocolInfo);
       }
 
       return {
         error: `Unknown message type: 0x${messageType.toString(16)}`,
+        protocol: protocolInfo,
         messageType: messageType
       };
     } catch (error) {
@@ -47,23 +67,59 @@ class GPSDecoder {
   }
 
   /**
+   * Get human-readable message type name
+   */
+  getMessageTypeName(messageType) {
+    const types = {
+      0x01: 'Location Report',
+      0x04: 'Heartbeat/Status',
+      0x10: 'Login Message',
+      0x13: 'Status Information',
+      0x15: 'Command Response',
+      0x16: 'Alarm Data',
+      0x80: 'LBS Data'
+    };
+    return types[messageType] || `Unknown (0x${messageType.toString(16)})`;
+  }
+
+  /**
    * Decode location report (message type 01)
    */
-  decodeLocationReport(bytes) {
+  decodeLocationReport(bytes, protocolInfo) {
     const result = {
+      protocol: protocolInfo,
       messageType: 'LocationReport',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      dataFields: []
     };
 
     try {
       // Extract IMEI (bytes 4-11, 8 bytes)
       const imeiBytes = bytes.slice(4, 12);
       result.imei = this.bytesToString(imeiBytes);
+      result.dataFields.push({
+        name: 'IMEI',
+        value: result.imei,
+        description: 'Device identifier'
+      });
 
       // Extract sequence number (2 bytes after IMEI)
       if (bytes.length >= 14) {
         result.sequenceNumber = this.readUInt16BE(bytes, 12);
+        result.dataFields.push({
+          name: 'Sequence Number',
+          value: result.sequenceNumber,
+          description: 'Message sequence counter'
+        });
       }
+
+      // Add raw frame info
+      result.dataFields.push({
+        name: 'Frame Length',
+        value: bytes.length,
+        unit: 'bytes',
+        description: 'Total frame size'
+      });
 
       // Check minimum length for location data
       // Full location message should be at least 28 bytes
@@ -113,15 +169,66 @@ class GPSDecoder {
 
       // Convert coordinates
       // Formula: value / 1800000 = decimal degrees
+      const lat = this.formatCoordinate(latRaw, isNorth, 'latitude');
+      const lon = this.formatCoordinate(lonRaw, isEast, 'longitude');
+      const gpsStatus = (status & 0x04) ? 'UNFIXED' : 'FIXED';
+      
       result.location = {
-        latitude: this.formatCoordinate(latRaw, isNorth, 'latitude'),
-        longitude: this.formatCoordinate(lonRaw, isEast, 'longitude'),
+        latitude: lat,
+        longitude: lon,
         altitude: altitude + ' meters',
         speed: speed + ' km/h',
         direction: direction + ' degrees',
         dateTime: dateTime,
-        gpsStatus: (status & 0x04) ? 'UNFIXED' : 'FIXED'
+        gpsStatus: gpsStatus
       };
+
+      // Add all location fields to dataFields array
+      result.dataFields.push(
+        {
+          name: 'Latitude',
+          value: `${lat.decimal}° ${lat.direction}`,
+          description: 'GPS latitude coordinate'
+        },
+        {
+          name: 'Longitude',
+          value: `${lon.decimal}° ${lon.direction}`,
+          description: 'GPS longitude coordinate'
+        },
+        {
+          name: 'Altitude',
+          value: altitude,
+          unit: 'meters',
+          description: 'Height above sea level'
+        },
+        {
+          name: 'Speed',
+          value: speed.toFixed(1),
+          unit: 'km/h',
+          description: 'Ground speed'
+        },
+        {
+          name: 'Direction',
+          value: direction,
+          unit: 'degrees',
+          description: 'Course over ground (0-360°)'
+        },
+        {
+          name: 'GPS Date/Time',
+          value: dateTime,
+          description: 'GPS timestamp'
+        },
+        {
+          name: 'GPS Status',
+          value: gpsStatus,
+          description: 'Satellite lock status'
+        },
+        {
+          name: 'Satellites',
+          value: (status >> 4) & 0x0F,
+          description: 'Number of satellites in view'
+        }
+      );
 
       return result;
     } catch (error) {
@@ -133,11 +240,31 @@ class GPSDecoder {
   /**
    * Decode heartbeat message (message type 04)
    */
-  decodeHeartbeat(bytes) {
+  decodeHeartbeat(bytes, protocolInfo) {
+    const imei = this.bytesToString(bytes.slice(4, 12));
     return {
+      protocol: protocolInfo,
       messageType: 'Heartbeat',
-      imei: this.bytesToString(bytes.slice(4, 12)),
-      timestamp: new Date().toISOString()
+      imei: imei,
+      timestamp: new Date().toISOString(),
+      dataFields: [
+        {
+          name: 'IMEI',
+          value: imei,
+          description: 'Device identifier'
+        },
+        {
+          name: 'Frame Length',
+          value: bytes.length,
+          unit: 'bytes',
+          description: 'Total frame size'
+        },
+        {
+          name: 'Status',
+          value: 'Device is alive and connected',
+          description: 'Heartbeat indicates active connection'
+        }
+      ]
     };
   }
 
